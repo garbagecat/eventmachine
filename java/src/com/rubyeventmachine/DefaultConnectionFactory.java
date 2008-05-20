@@ -39,7 +39,7 @@ public class DefaultConnectionFactory implements ConnectionFactory {
 	 * Connection, which is usually overridden. This class is probably most
 	 * useful for unit testing.
 	 */
-	@Override
+//	@Override
 	public Connection connection() {
 		return new Connection();
 	}
