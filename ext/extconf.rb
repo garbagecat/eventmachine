@@ -18,55 +18,50 @@
 # We have to munge LDSHARED because this code needs a C++ link.
 #
 
+def check_libs libs = [], fatal = false
+  libs.all? { |lib| have_library(lib) || (abort("could not find library: #{lib}") if fatal) }
+end
+
+def check_heads heads = [], fatal = false
+  heads.all? { |head| have_header(head) || (abort("could not find header: #{head}") if fatal)}
+end
+
 require 'mkmf'
 
-flags = []
+flags = ['-D BUILD_FOR_RUBY']
+
+# Minor platform details between *nix and Windows:
+
+if RUBY_PLATFORM =~ /(mswin|mingw|bccwin)/
+  GNU_CHAIN = true if $1 == 'mingw'
+  OS_WIN32 = true
+  flags << "-D OS_WIN32"
+else
+  GNU_CHAIN = true
+  OS_UNIX = true
+  flags << '-D OS_UNIX'
+  if have_header("sys/event.h") and have_header("sys/queue.h")
+    flags << "-DHAVE_KQUEUE"
+  end
+  check_libs(%w[pthread], true)  
+end
+
+# Main platform invariances:
 
 case RUBY_PLATFORM.split('-',2)[1]
 when 'mswin32', 'mingw32', 'bccwin32'
-  unless have_header('windows.h') and
-      have_header('winsock.h') and
-      have_library('kernel32') and
-      have_library('rpcrt4') and
-      have_library('gdi32')
-    exit
-  end
+  check_heads(%w[windows.h winsock.h], true)
+  check_libs(%w[kernel32 rpcrt4 gdi32], true)
 
-  flags << "-D OS_WIN32"
-  flags << '-D BUILD_FOR_RUBY'
-  flags << "-EHs"
-  flags << "-GR"
-
-  dir_config('ssl')
-  if have_library('ssleay32') and
-	  have_library('libeay32') and
-	  have_header('openssl/ssl.h') and
-	  have_header('openssl/err.h')
-    flags << '-D WITH_SSL'
-  else
-    flags << '-D WITHOUT_SSL'
+  unless GNU_CHAIN
+    flags << "-EHs"
+    flags << "-GR"
   end
 
 when /solaris/
-  unless have_library('pthread') and
-	have_library('nsl') and
-	have_library('socket')
-	  exit
-  end
+  check_libs(%w[nsl socket], true)
 
-  flags << '-D OS_UNIX'
   flags << '-D OS_SOLARIS8'
-  flags << '-D BUILD_FOR_RUBY'
-
-  dir_config('ssl')
-  if have_library('ssl') and
-	  have_library('crypto') and
-	  have_header('openssl/ssl.h') and
-	  have_header('openssl/err.h')
-    flags << '-D WITH_SSL'
-  else
-    flags << '-D WITHOUT_SSL'
-  end
 
   # on Unix we need a g++ link, not gcc.
   CONFIG['LDSHARED'] = "$(CXX) -shared"
@@ -79,51 +74,17 @@ when /solaris/
 
 when /openbsd/  
   # OpenBSD branch contributed by Guillaume Sellier.
-  flags << '-DOS_UNIX'
-  flags << '-DBUILD_FOR_RUBY'
    
-  dir_config('ssl') # here I don't know why we have to check -lcrypto before -lssl otherwise -lssl is not found
-  if have_library('crypto') and
-    	have_library('ssl') and
-    	have_header('openssl/ssl.h') and
-    	have_header('openssl/err.h')
-    flags << '-DWITH_SSL'
-  else
-    flags << '-DWITHOUT_SSL'
-  end
   # on Unix we need a g++ link, not gcc. On OpenBSD, linking against libstdc++ have to be explicitly done for shared libs
   CONFIG['LDSHARED'] = "$(CXX) -shared -lstdc++"
 
-
 when /darwin/
-  flags << '-DOS_UNIX'
-  flags << '-DBUILD_FOR_RUBY'
 
-  if have_header("sys/event.h") and have_header("sys/queue.h")
-    flags << "-DHAVE_KQUEUE"
-  end
-
-  dir_config('ssl')
-  if have_library('ssl') and
-	  have_library('crypto') and
-	  have_library('C') and
-	  have_header('openssl/ssl.h') and
-	  have_header('openssl/err.h')
-    flags << '-DWITH_SSL'
-  else
-    flags << '-DWITHOUT_SSL'
-  end
   # on Unix we need a g++ link, not gcc.
   # Ff line contributed by Daniel Harple.
   CONFIG['LDSHARED'] = "$(CXX) " + CONFIG['LDSHARED'].split[1..-1].join(' ')
 
 when /linux/
-  unless have_library('pthread')
-	  exit
-  end
-
-  flags << '-DOS_UNIX'
-  flags << '-DBUILD_FOR_RUBY'
 
   # Original epoll test is inadequate because 2.4 kernels have the header
   # but not the code.
@@ -142,21 +103,6 @@ when /linux/
 	  flags << "-DHAVE_TBR"
   end
 
-  dir_config('ssl', "#{ENV['OPENSSL']}/include", ENV['OPENSSL'])
-  # Check for libcrypto twice, before and after ssl. That's because on some platforms
-  # and openssl versions, libssl will emit unresolved externals from crypto. It
-  # would be cleaner to simply check crypto first, but that doesn't always work in 
-  # Ruby. The order we check them doesn't seem to control the order in which they're
-  # emitted into the link command. This is pretty weird, I have to admit.
-  if have_library('crypto') and
-	  have_library('ssl') and
-	  have_library('crypto') and
-	  have_header('openssl/ssl.h') and
-	  have_header('openssl/err.h')
-    flags << '-DWITH_SSL'
-  else
-    flags << '-DWITHOUT_SSL'
-  end
   # on Unix we need a g++ link, not gcc.
   CONFIG['LDSHARED'] = "$(CXX) -shared"
 
@@ -164,40 +110,43 @@ when /linux/
   # You might think modifying CONFIG['LINK_SO'] would be a better way to do this,
   # but it doesn't work because mkmf doesn't look at CONFIG['LINK_SO'] again after
   # it initializes.
-  linkso = Object.send :remove_const, "LINK_SO"
-  LINK_SO = linkso + "; strip $@"
-
+  LINK_SO.replace(LINK_SO + "; strip $@")
+  
 else
-  unless have_library('pthread')
-	  exit
-  end
-
-  flags << '-DOS_UNIX'
-  flags << '-DBUILD_FOR_RUBY'
-
-  if have_header("sys/event.h") and have_header("sys/queue.h")
-    flags << "-DHAVE_KQUEUE"
-  end
-
-  dir_config('ssl')
-  if have_library('ssl') and
-	  have_library('crypto') and
-	  have_header('openssl/ssl.h') and
-	  have_header('openssl/err.h')
-    flags << '-DWITH_SSL'
-  else
-    flags << '-DWITHOUT_SSL'
-  end
   # on Unix we need a g++ link, not gcc.
   CONFIG['LDSHARED'] = "$(CXX) -shared"
-
 end
+
+# OpenSSL:
+
+OPENSSL_LIBS_HEADS_PLATFORMS = {
+  :unix => [%w[ssl crypto], %w[openssl/ssl.h openssl/err.h]],
+  :darwin => [%w[ssl crypto C], %w[openssl/ssl.h openssl/err.h]],
+  # openbsd and linux:
+  :crypto_hack => [%w[crypto ssl crypto], %w[openssl/ssl.h openssl/err.h]],
+  :mswin => [%w[ssleay32 libeay32], %w[openssl/ssl.h openssl/err.h]],
+}
+
+dc_flags = ['ssl']
+dc_flags += ["#{ENV['OPENSSL']}/include", ENV['OPENSSL']] if /linux/ =~ RUBY_PLATFORM
+libs, heads = case RUBY_PLATFORM
+when /mswin/    : OPENSSL_LIBS_HEADS_PLATFORMS[:mswin]
+when /mingw/    : OPENSSL_LIBS_HEADS_PLATFORMS[:unix]
+when /darwin/   : OPENSSL_LIBS_HEADS_PLATFORMS[:darwin]
+when /openbsd/  : OPENSSL_LIBS_HEADS_PLATFORMS[:crypto_hack]
+when /linux/    : OPENSSL_LIBS_HEADS_PLATFORMS[:crypto_hack]
+else              OPENSSL_LIBS_HEADS_PLATFORMS[:unix]
+end
+dir_config(*dc_flags)
+have_openssl = check_libs(libs) and check_heads(heads)
+flags << "-D #{have_openssl ? "WITH_SSL" : "WITHOUT_SSL"}"
+
+# Finally, seal up flags and write Makefile
 
 if $CPPFLAGS
   $CPPFLAGS += ' ' + flags.join(' ')
 else
   $CFLAGS += ' ' + flags.join(' ')
 end
-
 
 create_makefile "rubyeventmachine"
