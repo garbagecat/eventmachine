@@ -407,6 +407,9 @@ EventMachine_t::_RunOnce
 
 bool EventMachine_t::_RunOnce()
 {
+  #ifdef BUILD_FOR_RUBY
+  rb_thread_schedule();
+  #endif
 	if (bEpoll)
 		return _RunEpollOnce();
 	else if (bKqueue)
@@ -654,7 +657,7 @@ int SelectData_t::_Select()
 	#endif
 
 	#ifndef HAVE_TBR
-	return rb_thread_select (maxsocket+1, &fdreads, &fdwrites, NULL, &tv);
+	return EmSelect (maxsocket+1, &fdreads, &fdwrites, NULL, &tv);
 	#endif
 }
 

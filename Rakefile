@@ -112,6 +112,13 @@ Rake::GemPackageTask.new(JSpec) do end
 desc "Build the EventMachine RubyGem for JRuby"
 task :jgem => [:clean, :jar, "pkg/eventmachine-java-#{JSpec.version}.gem"]
 
+namespace :jgem do
+  desc "Build and install the jruby gem"
+  task :install => :jgem do
+    sudo "gem inst pkg/#{JSpec.name}*.gem"
+  end
+end
+
 
 # This task creates the JRuby JAR file and leaves it in the lib directory.
 # This step is required before executing the jgem task.
@@ -123,3 +130,5 @@ task :jar do |t|
     mv 'em_reactor.jar', '../../lib/em_reactor.jar'
   end
 end
+
+# The idea for using Rakefile instead of extconf: task :default => [RUBY_PLATFORM == 'java' ? :jar : :extension]

@@ -32,7 +32,7 @@ See the file COPYING for complete licensing information.
 
 #ifdef BUILD_FOR_RUBY
   #include <ruby.h>
-  #define EmSelect rb_thread_select
+  #define EmSelect select
 #else
   #define EmSelect select
 #endif
